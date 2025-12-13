@@ -66,14 +66,7 @@ fraud-detection-project/
 ├── notebooks/
 │   ├── 01_eda.ipynb
 │   ├── 02_preprocessing.ipynb
-│   ├── 03_modeling.ipynb
-│   └── 04_evaluation.ipynb
-│
-├── src/
-│   ├── data_preprocessing.py
-│   ├── models/
-│   ├── evaluation.py
-│   └── utils.py
+│   └── 03_modeling.ipynb
 │
 ├── requirements.txt
 └── README.md
