@@ -1,6 +1,5 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
-*.py[cod]
 *$py.class
 
 # Jupyter Notebook checkpoints
@@ -16,7 +15,6 @@ __pycache__/
 *.csv
 
 # Distribution / packaging
-.Python
 build/
 develop-eggs/
 dist/
@@ -46,7 +44,6 @@ htmlcov/
 nosetests.xml
 coverage.xml
 *.cover
-*.py,cover
 .hypothesis/
 
 # mypy
