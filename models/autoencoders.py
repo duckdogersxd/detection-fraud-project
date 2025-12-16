@@ -1,128 +1,144 @@
 import numpy as np
-import pandas as pd
-import tensorflow as tf
-from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, Dense, Dropout
-from tensorflow.keras.callbacks import EarlyStopping
-from tensorflow.keras import regularizers  # Nova importação necessária
 import matplotlib.pyplot as plt
-import seaborn as sns
+import tensorflow as tf
+from tensorflow.keras.models import Model, load_model
+from tensorflow.keras.layers import Input, Dense, Dropout, BatchNormalization
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+from tensorflow.keras import regularizers, optimizers
 
 class AutoencoderFraude:
     """
-    Classe para criação e treinamento de um Autoencoder para detecção de fraudes.
-    O modelo é treinado de forma semi-supervisionada (apenas em dados normais)
-    e detecta anomalias baseado no erro de reconstrução.
+    Autoencoder robusto para detecção de anomalias em transações financeiras.
+    Suporta arquitetura dinâmica, callbacks avançados e utilitários de análise.
     """
     
-    def __init__(self, input_dim, encoding_dim=14):
+    def __init__(self, input_dim, encoding_dim=14, num_layers=2, 
+                 neurons_decay=0.5, activation='elu', 
+                 dropout_rate=0.1, l1_reg=10e-5, learning_rate=0.1):
         """
-        Inicializa o Autoencoder.
-        
         Args:
             input_dim (int): Número de features de entrada.
-            encoding_dim (int): Dimensão da camada latente (gargalo).
+            encoding_dim (int): Tamanho do gargalo (bottleneck).
+            num_layers (int): Camadas ocultas no encoder (antes do gargalo).
+            neurons_decay (float): Fator de redução de neurônios (0.0 a 1.0).
+            activation (str): 'elu', 'relu', 'selu', 'tanh', 'swish'.
+            dropout_rate (float): Taxa de dropout (0.0 a 0.5).
+            l1_reg (float): Regularização L1 no gargalo (esparsidade).
+            learning_rate (float): Taxa de aprendizado inicial.
         """
         self.input_dim = input_dim
         self.encoding_dim = encoding_dim
+        self.num_layers = num_layers
+        self.neurons_decay = neurons_decay
+        self.activation = activation
+        self.dropout_rate = dropout_rate
+        self.l1_reg = l1_reg
+        self.learning_rate = learning_rate
+        
         self.autoencoder = None
-        self.encoder = None
         self.history = None
         
+    def _construir_camadas(self, input_tensor):
+        """Lógica interna para empilhar camadas dinamicamente."""
+        x = input_tensor
+        
+        # --- Encoder ---
+        current_units = self.input_dim
+        encoder_dims = [] 
+        
+        for i in range(self.num_layers):
+            # Decaimento suave até chegar próximo do bottleneck
+            current_units = max(int(current_units * self.neurons_decay), self.encoding_dim + 2)
+            encoder_dims.append(current_units)
+            
+            x = Dense(current_units, activation=self.activation, name=f'enc_dense_{i}')(x)
+            x = BatchNormalization(name=f'enc_bn_{i}')(x)
+            if self.dropout_rate > 0:
+                x = Dropout(self.dropout_rate, name=f'enc_drop_{i}')(x)
+        
+        # --- Bottleneck ---
+        # L1 Regularization força representações latentes esparsas
+        bottleneck = Dense(self.encoding_dim, activation=self.activation, 
+                           activity_regularizer=regularizers.l1(self.l1_reg),
+                           name='bottleneck')(x)
+        
+        # --- Decoder ---
+        x = bottleneck
+        for i, units in enumerate(reversed(encoder_dims)):
+            x = Dense(units, activation=self.activation, name=f'dec_dense_{i}')(x)
+            x = BatchNormalization(name=f'dec_bn_{i}')(x)
+            if self.dropout_rate > 0:
+                x = Dropout(self.dropout_rate, name=f'dec_drop_{i}')(x)
+                
+        # Saída Linear (Reconstrução precisa de valores reais como RobustScaler)
+        output = Dense(self.input_dim, activation='linear', name='output')(x)
+        return output
+
     def construir_modelo(self):
-        """Constrói a arquitetura do modelo (Encoder-Decoder)."""
-        # Camada de Entrada
-        input_layer = Input(shape=(self.input_dim,))
+        """Monta e compila o modelo Keras."""
+        input_layer = Input(shape=(self.input_dim,), name='input')
+        output_layer = self._construir_camadas(input_layer)
         
-        # Encoder
-        # Mudança: activation='elu' lida melhor com dados normalizados (negativos) como Sin/Cos
-        encoded = Dense(22, activation='elu')(input_layer)
-        encoded = Dropout(0.1)(encoded)
-        encoded = Dense(18, activation='elu')(encoded)
+        self.autoencoder = Model(inputs=input_layer, outputs=output_layer)
         
-        # Latent Space (Gargalo)
-        # Mudança: Adição de regularização L1 para forçar esparsidade (bom para anomalias)
-        encoded = Dense(self.encoding_dim, activation='elu',
-                        activity_regularizer=regularizers.l1(10e-5))(encoded) 
+        opt = optimizers.Adam(learning_rate=self.learning_rate)
+        self.autoencoder.compile(optimizer=opt, loss='mse')
         
-        # Decoder
-        decoded = Dense(18, activation='elu')(encoded)
-        decoded = Dropout(0.1)(decoded)
-        decoded = Dense(22, activation='elu')(decoded)
-        
-        # Saída linear pois usamos RobustScaler (dados não estão entre 0 e 1)
-        decoded = Dense(self.input_dim, activation='linear')(decoded) 
-        
-        # Modelo Autoencoder Completo
-        self.autoencoder = Model(inputs=input_layer, outputs=decoded)
-        
-        # Modelo apenas Encoder (para redução de dimensionalidade se necessário)
-        self.encoder = Model(inputs=input_layer, outputs=encoded)
-        
-        self.autoencoder.compile(optimizer='adam', loss='mean_squared_error')
-        self.autoencoder.summary()
-        
-    def treinar(self, X_train, epochs=50, batch_size=32, validation_split=0.2):
+    def treinar(self, X_train, X_val=None, epochs=100, batch_size=64, verbose=0):
         """
-        Treina o modelo nos dados normais.
-        
-        Args:
-            X_train (pd.DataFrame ou np.array): Dados de treino (apenas normais).
+        Treina o modelo com callbacks para evitar overfitting.
         """
         if self.autoencoder is None:
             self.construir_modelo()
             
-        early_stopping = EarlyStopping(
-            monitor='val_loss',
-            patience=5,
-            restore_best_weights=True,
-            mode='min'
-        )
+        callbacks = [
+            EarlyStopping(monitor='val_loss', patience=6, restore_best_weights=True, verbose=verbose),
+            ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3, min_lr=1e-6, verbose=verbose)
+        ]
         
+        if X_val is None:
+            # Se não houver validação explícita, usa 20% do treino
+            validation_split = 0.2
+            validation_data = None
+        else:
+            validation_split = 0.0
+            validation_data = (X_val, X_val)
+            
         self.history = self.autoencoder.fit(
-            X_train, X_train, # Autoencoder: entrada = saída
+            X_train, X_train,
             epochs=epochs,
             batch_size=batch_size,
             shuffle=True,
             validation_split=validation_split,
-            callbacks=[early_stopping],
-            verbose=1
+            validation_data=validation_data,
+            callbacks=callbacks,
+            verbose=verbose
         )
-        
-    def plotar_historico(self):
-        """Plota a curva de perda (loss) durante o treinamento."""
-        if self.history is None:
-            print("O modelo ainda não foi treinado.")
-            return
-            
-        plt.figure(figsize=(10, 6))
-        plt.plot(self.history.history['loss'], label='Loss Treino')
-        plt.plot(self.history.history['val_loss'], label='Loss Validação')
-        plt.title('Progresso do Treinamento do Modelo (Loss MSE)')
-        plt.ylabel('Erro Médio Quadrático (MSE)')
-        plt.xlabel('Época')
-        plt.legend()
-        plt.grid()
-        plt.show()
-        
-    def calcular_erro_reconstrucao(self, X):
-        """
-        Calcula o erro de reconstrução (MSE) para cada amostra.
-        
-        Args:
-            X (pd.DataFrame): Dados para avaliar.
-            
-        Returns:
-            np.array: Vetor com o MSE para cada amostra.
-        """
-        predictions = self.autoencoder.predict(X)
-        mse = np.mean(np.power(X - predictions, 2), axis=1)
+        return self.history
+
+    def calcular_erro_reconstrucao(self, data):
+        """Calcula Mean Squared Error (MSE) para cada amostra."""
+        reconstructions = self.autoencoder.predict(data, verbose=0)
+        mse = np.mean(np.power(data - reconstructions, 2), axis=1)
         return mse
         
-    def detectar_anomalias(self, X, threshold):
-        """
-        Classifica as amostras como normais (0) ou anomalias (1) baseada no threshold.
-        """
-        mse = self.calcular_erro_reconstrucao(X)
-        y_pred = [1 if e > threshold else 0 for e in mse]
-        return np.array(y_pred)
+    def detectar_anomalias(self, data, threshold):
+        """Retorna previsões binárias (0=Normal, 1=Fraude) dado um threshold."""
+        mse = self.calcular_erro_reconstrucao(data)
+        return (mse > threshold).astype(int)
+
+    def plotar_historico(self):
+        """Plota curvas de perda de treino e validação."""
+        if not self.history:
+            print("Modelo ainda não treinado.")
+            return
+            
+        plt.figure(figsize=(10, 5))
+        plt.plot(self.history.history['loss'], label='Treino')
+        plt.plot(self.history.history['val_loss'], label='Validação')
+        plt.title('Histórico de Treinamento (Loss)')
+        plt.ylabel('MSE')
+        plt.xlabel('Época')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.show()
