@@ -126,6 +126,7 @@ fraud-detection-project/
     - Local Outlier Factor (LOF)
     - Autoencoder
 - Otimização de hiperparâmetros
+- Comparação de Resultados
 
 ---
 
@@ -133,10 +134,10 @@ fraud-detection-project/
 
 | Nome      | Função                | Responsabilidades                   |
 |-----------|-----------------------|-------------------------------------|
-| Membro 1  | Líder Técnico         | Autoencoders, Análise Estatística   |
-| Membro 2  | Especialista em Dados | EDA, Pré-processamento              |
-| Membro 3  | Especialista em Modelos| IF, LOF, Otimização                |
-| Membro 4  | Documentação          | Relatório, Slides, Qualidade        |
+| Lucas de Morais  | Líder Técnico         | Autoencoders, Análise Estatística   |
+| Igor Raphael  | Especialista em Dados | EDA, Pré-processamento              |
+| Fabrício Aranha  | Especialista em Modelos| IF, LOF, Otimização                |
+| Paula Carolina  | Documentação          | Relatório, Slides, Qualidade        |
 
 ---
 
