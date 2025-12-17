@@ -50,7 +50,7 @@ Projeto desenvolvido para a disciplina **CIN0144 - Aprendizado de Máquina e Ci�
 - **TensorFlow/Keras** (Autoencoders)
 - **Pandas & NumPy** (Manipulação de dados)
 - **Matplotlib & Seaborn** (Visualizações)
-- **Imbalanced-learn** (Técnicas de balanceamento)
+- **Optuna** (Tunagem de hiperparâmetros)
 
 ---
 
@@ -66,14 +66,12 @@ fraud-detection-project/
 ├── notebooks/
 │   ├── 01_eda.ipynb
 │   ├── 02_preprocessing.ipynb
-│   ├── 03_modeling.ipynb
-│   └── 04_evaluation.ipynb
+│   └── 03_modeling.ipynb
 │
-├── src/
-│   ├── data_preprocessing.py
-│   ├── models/
-│   ├── evaluation.py
-│   └── utils.py
+│── models/
+│   ├── isolation_forest.py
+│   ├── local_outlier_factor.py
+│   └── autoencoder.py
 │
 ├── requirements.txt
 └── README.md
@@ -128,12 +126,6 @@ fraud-detection-project/
     - Local Outlier Factor (LOF)
     - Autoencoder
 - Otimização de hiperparâmetros
-
-### 📈 Avaliação (Notebook 04)
-- Métricas para dados desbalanceados
-- Comparação entre modelos
-- Análise estatística
-- Visualização de resultados
 
 ---
 
